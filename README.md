@@ -13,7 +13,7 @@ are supported
 This plugin requires the psychpg2 module
 
 ```
-pip3 --no-cache-dir install psycopg2-binary```
+pip3 install psycopg2-binary
 ```
 
 ## Command options
@@ -35,12 +35,12 @@ optional arguments:
   -d DAYS, --days DAYS  Number of days to consider when checking the job status for the given client
   -j JOB, --job JOB     Optional job name
   -R, --norunwarn       No run status gives warning
-  -w WARN WARN, --warn WARN WARN
+  -w <target> <thresh>, --warn <target> <thresh>
                         Warning threshold compatible to Nagios threshold range specifica tions. This option takes two
-                        arguments, first the target data eithe r '+' for the total successful job count or a job name,
-                        and the thr eshold. ex. --warn + 3:
-  -c CRIT CRIT, --crit CRIT CRIT
+                        arguments, first the target data either '+' for the total successful job count or a job name,
+                        and the threshold. ex. --warn + 3:
+  -c <target> <thresh>, --crit CRIT CRIT<target> <thresh>
                         Critical threshold compatible to Nagios threshold range specific ations. This option takes two
-                        arguments, first the target data eith er '+' for the total successful job count or a job name,
-                        and the th reshold. ex. --crit server-backup 3:
+                        arguments, first the target data either '+' for the total successful job count or a job name,
+                        and the threshold. ex. --crit server-backup 3:
 ```
