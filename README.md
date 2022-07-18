@@ -5,8 +5,7 @@
 This is a Nagios / Icinga(2) plugin to monitor the status of 
 completed backup jobs for a given client
 
-Currently only bacula installations with PostgreSQL database 
-are supported
+This version of the script supports bacula installations with PostgreSQL or MySQL database
 
 ## IMPORTANT NOTES
 
@@ -31,7 +30,10 @@ even if the author has been advised of the possibility of such damages.
 
 ## Install
 
-This plugin requires the psychpg2 module
+This plugin requires the psychpg2 (PostgreSQL) or pymysql (MySQL) module. You may choose to install both or only the
+required one. Note that the script assumes postgres database by default. User --mysql switch in order to connect
+to a MySQL database.
+
 
 ```
 pip3 install psycopg2-binary
