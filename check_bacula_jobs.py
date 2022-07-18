@@ -8,15 +8,17 @@ import sys
 import typing
 from typing import AnyStr, Optional, Union, List
 
-import psycopg2
-
 import argparse
 
 if not sys.version_info >= (3,7):
   raise RuntimeError("this script requires Python V3.7 or higher")
 
+VERSION = [2, 0, 0]
+
 totalPerfLabel = "Total OK jobs"
 
+POSTGRES_PORT=5432
+MYSQL_PORT=3306
 # ...
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -26,10 +28,16 @@ parser.add_argument(
     help="Bacula database host name or address"
 )
 parser.add_argument(
+    "-Y",
+    "--mysql",
+    action="store_true",
+    help="Use MySql instead of PostgreSQL"
+)
+parser.add_argument(
     "-p",
     "--port",
-    default=5432,
-    help="PostgreSQL port (default=5432)"
+    default=0,
+    help="Postgres/MySQL port (default=5432(PostgreSQL)|3306(MySQL))"
 )
 parser.add_argument(
     "-U",
@@ -93,7 +101,12 @@ parser.add_argument(
 
 args = parser.parse_args()
 
-POSTGRES_PORT = 5432
+if args.mysql:
+  import pymysql
+  if args.port==0: args.port=MYSQL_PORT
+else:
+  import psycopg2
+  if args.port==0: args.port=POSTGRES_PORT
 
 
 ###############################################################################
@@ -109,7 +122,6 @@ def days(d: datetime):
   d = d.date()
   today = datetime.datetime.now().date()
   return (today - d).days
-
 
 ###############################################################################
 class TThreshold(TRange):
@@ -270,12 +282,16 @@ Nagios = TNagios()
 
 
 class TBacula:
+  DBSLIST= ["mysql","pg"]
 
   def __init__(self, dbURI: AnyStr, dbUser: AnyStr, dbPass: AnyStr):
-    m = re.fullmatch(r"(?P<host>[^:]+)[:](?P<port>[0-9]*)[/][/](?P<db>.+)", dbURI)
+    m = re.fullmatch(r"(?P<dbs>[a-zA-Z0-9]+)[:][/][/](?P<host>[^:]+)[:](?P<port>[0-9]*)[/](?P<db>.+)", dbURI)
     if m is None:
       Nagios.ReturnStatus(TNagios.CRITICAL, f"invalid db URI: '{dbURI}'")
 
+    self.DBS=m.group("dbs")
+    if self.DBS not in TBacula.DBSLIST:
+      raise RuntimeError(f"unknown database server type '{self.DBS}', supported are {repr(TBacula.DBSLIST)}")
     self.DBHost = m.group("host")
     self.DBPort = int(m.group("port")) if len(m.group("port")) > 0 else POSTGRES_PORT
     self.DBName = m.group("db")
@@ -293,15 +309,22 @@ class TBacula:
   # ------------------------------------------------------------------------------
   def connect(self):
     try:
-      self._cnx = psycopg2.connect(host=self.DBHost,
-                                   database=self.DBName,
-                                   user=self.DBUser,
-                                   password=self.DBPass,
-                                   port=self.DBPort,
-                                   connect_timeout=3)
+      if self.DBS == "pg":
+        self._cnx = psycopg2.connect(host=self.DBHost,
+                                     database=self.DBName,
+                                     user=self.DBUser,
+                                     password=self.DBPass,
+                                     port=self.DBPort,
+                                     connect_timeout=3)
+      else:
+        self._cnx = pymysql.connect(host=self.DBHost,
+                                    user=self.DBUser,
+                                    password=self.DBPass,
+                                    database=self.DBName,
+                                    cursorclass=pymysql.cursors.Cursor)
     except Exception as e:
       Nagios.ReturnStatus(TNagios.CRITICAL,
-                          f"could not connect to postgresql database '{self.DBName}' @ {self.DBHost}:{self.DBPort}")
+                          f"could not connect to {self.DBS} database '{self.DBName}' @ {self.DBHost}:{self.DBPort} - {str(e)}")
 
 
 ###############################################################################
@@ -474,7 +497,8 @@ class TClient:
       if len(clientList[-1]) > 3 and clientList[-1][-3:] != "-fd": clientList.append(clientList[-1] + "-fd")
       clientList = ["'" + x + "'" for x in clientList]
 
-    sql = f"SELECT client.clientid FROM public.client WHERE lower(client.name) IN ({','.join(clientList)})"
+    #sql = f"SELECT client.clientid FROM public.client WHERE lower(client.name) IN ({','.join(clientList)})"
+    sql = f"SELECT client.clientid FROM client WHERE lower(client.name) IN ({','.join(clientList)})"
     cursor.execute(sql)
     if cursor.rowcount == 0:
       cursor.close()
@@ -495,8 +519,11 @@ class TClient:
     # finding the last executed job
     tod = datetime.datetime.now()
     days = datetime.timedelta(days=args.days)
-    sql = f"SELECT name, job, level, jobstatus, jobfiles, jobbytes, schedtime, endtime, realendtime FROM public.job WHERE job.clientid = '{self.ClientID}' AND type = 'B'"
-    selection = f"AND realendtime >= CURRENT_DATE - INTERVAL '{int(args.days)} day'"
+    if args.mysql:
+      selection = f"AND realendtime >= (DATE(NOW()) - INTERVAL {int(args.days)} DAY)"
+    else:
+      selection = f"AND realendtime >= CURRENT_DATE - INTERVAL '{int(args.days)} day'"
+    sql = f"SELECT name, job, level, jobstatus, jobfiles, jobbytes, schedtime, endtime, realendtime FROM job WHERE job.clientid = '{self.ClientID}' AND type = 'B'"
     sqlPost = f"ORDER BY realendtime DESC"
     selectJob = "" if self.JobName is None else f" AND lower(job.name) = '{self.JobName.lower()}'"
     cursor.execute(f"{sql} {selection}{selectJob} {sqlPost}")
@@ -611,7 +638,7 @@ criticalThresholds = parseThresholds(TNagios.CRITICAL, args.crit)
 Nagios.AddTheshold(warningThresholds)
 Nagios.AddTheshold(criticalThresholds)
 
-bacula = TBacula(f"{args.host}:{args.port}//{args.db}", args.dbuser, args.dbpass)
+bacula = TBacula(f"{'mysql' if args.mysql else 'pg'}://{args.host}:{args.port}/{args.db}", args.dbuser, args.dbpass)
 
 client = TClient(bacula, "wiki", args.job)
 client.GetBackupStatus()
